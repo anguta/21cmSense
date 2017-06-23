@@ -6,7 +6,7 @@ import aipy as a, numpy as n, optparse, sys
 from scipy import interpolate
 
 o = optparse.OptionParser()
-o.set_usage('calc_sense.py [options] *.npz')
+o.set_usage('calc_sense.py [options] <array1>.npz <array2>.npz')
 o.set_description(__doc__)
 o.add_option('-m', '--model', dest='model', default='mod',
     help="The model of the foreground wedge to use.  Three options are 'pess' (all k modes inside horizon + buffer are excluded, and all baselines are added incoherently), 'mod' (all k modes inside horizon + buffer are excluded, but all baselines within a uv pixel are added coherently), and 'opt' (all modes k modes inside the primary field of view are excluded).  See Pober et al. 2014 for more details.")
@@ -19,7 +19,7 @@ o.add_option('--ndays', dest='ndays', default=180., type=float,
 o.add_option('--n_per_day', dest='n_per_day', default=6., type=float,
     help="The number of good observing hours per day.  This corresponds to the size of a low-foreground region in right ascension for a drift scanning instrument.  The total observing time is ndays*n_per_day.  Default is 6.  If simulating a tracked scan, n_per_day should be a multiple of the length of the track (i.e. for two three-hour tracks per day, n_per_day should be 6).")
 o.add_option('--bwidth', dest='bwidth', default=0.008, type=float,
-    help="Cosmological bandwidth in GHz.  Note this is not the total instrument bandwidth, but the redshift range that can be considered co-eval.  Default is 0.008 (8 MHz).")
+             help="Cosmological bandwidth in GHz for a 21cm observation.  Note this is not the total instrument bandwidth, but the redshift range that can be considered co-eval.  Default is 0.008 (8 MHz).")
 o.add_option('--nchan', dest='nchan', default=82, type=int,
     help="Integer number of channels across cosmological bandwidth.  Defaults to 82, which is equivalent to 1024 channels over 100 MHz of bandwidth.  Sets maximum k_parallel that can be probed, but little to no overall effect on sensitivity.")
 o.add_option('--no_ns', dest='no_ns', action='store_true',
@@ -27,11 +27,11 @@ o.add_option('--no_ns', dest='no_ns', action='store_true',
 opts, args = o.parse_args(sys.argv[1:])
 
 #=========================COSMOLOGY/BINNING FUNCTIONS=========================
-
+F21 = 1.42040575177
+FCO10 = 115.271208
 #Convert frequency (GHz) to redshift for 21cm line.
-def f2z(fq):
-    F21 = 1.42040575177
-    return (F21 / fq - 1)
+def f2z(fq,FD=F21):
+    return (FD / fq - 1)
 
 #Multiply by this to convert an angle on the sky to a transverse distance in Mpc/h at redshift z
 def dL_dth(z):
@@ -67,29 +67,42 @@ def find_nearest(array,value):
 #====================OBSERVATION/COSMOLOGY PARAMETER VALUES====================
 
 #Load in data from array file; see mk_array_file.py for definitions of the parameters
-array = n.load(args[0])
-name = array['name']
-obs_duration = array['obs_duration']
-dish_size_in_lambda = array['dish_size_in_lambda']
-Trx = array['Trx']
-t_int = array['t_int']
-if opts.model == 'pess':
-    uv_coverage = array['uv_coverage_pess']
-else:
-    uv_coverage = array['uv_coverage']
-
-h = 0.7
-B = opts.bwidth
-z = f2z(array['freq'])
-
-dish_size_in_lambda = dish_size_in_lambda*(array['freq']/.150) # linear frequency evolution, relative to 150 MHz
-first_null = 1.22/dish_size_in_lambda #for an airy disk, even though beam model is Gaussian
-bm = 1.13*(2.35*(0.45/dish_size_in_lambda))**2
-nchan = opts.nchan
-kpls = dk_deta(z) * n.fft.fftfreq(nchan,B/nchan)
-
-Tsky = 60e3 * (3e8/(array['freq']*1e9))**2.55  # sky temperature in mK
+array_dict={}
+for argnum,arg in enumerate(args):
+    array = n.load(args[0])
+    name = array['name']
+    obs_duration = array['obs_duration']
+    array_dict[name]['obs_duration']=obs_duration
+    dish_size_in_lambda = array['dish_size_in_lambda']
+    array_dict[name]['dish_size_in_lambda']=dish_size_in_lambda
+    Trx = array['Trx']
+    array_dict[name]['Trx']=Trx
+    t_int = array['t_int']
+    array_dict[name]['t_int']=t_int
+    if opts.model == 'pess':
+        uv_coverage = array['uv_coverage_pess']
+    else:
+        uv_coverage = array['uv_coverage']
+    array_dict[name]['uv_coverage']=uv_coverage  
+    obstype=array['obstype']
+    h = 0.7
+    CF={'21cm':F21,'co':FCO10}[obstype]
+    B = opts.bwidth*CF/F21
+    array_dict[name]['B']=B
+    z = f2z(array['freq'],CF)
+    array_dict[name]['z']=z
+    dish_size_in_lambda = dish_size_in_lambda*(array['freq']/.150) # linear frequency evolution, relative to 150 MHz
+    array_dict[name]['dish_size_in_lambda']=dish_size_in_lambda
+    first_null = 1.22/dish_size_in_lambda #for an airy disk, even though beam model is Gaussian
+    array_dict[name]['first_null']=first_null
+    bm = 1.13*(2.35*(0.45/dish_size_in_lambda))**2
+    array_dict[name]['bm']=bm
+    kpls = dk_deta(z) * n.fft.fftfreq(nchan,B/nchan) * CF/F21
+    array_dict[name]['kpls']=kpls
+    Tsky = 60e3 * (3e8/(array['freq']*1e9))**2.55+2.7e3  # sky temperature in mK (added CMB for high frequencies)
+    array_dict[name]['Tsky']=Tsky
 n_lstbins = opts.n_per_day*60./obs_duration
+nchan = opts.nchan
 
 #===============================EOR MODEL===================================
 
@@ -98,11 +111,13 @@ n_lstbins = opts.n_per_day*60./obs_duration
 #This is a dimensionless power spectrum, i.e., Delta^2
 modelfile = opts.eor
 model = n.loadtxt(modelfile)
-mk, mpk = model[:,0]/h, model[:,1] #k, Delta^2(k)
+mk, mpk1, mpk2, mpk12 = model[:,0]/h, model[:,1], model[:,2], model[:,3] #k, Delta^2(k)
 #note that we're converting from Mpc to h/Mpc
 
 #interpolation function for the EoR model
-p21 = interpolate.interp1d(mk, mpk, kind='linear')
+p1 = interpolate.interp1d(mk, mpk1, kind='linear')
+p2 = interpolate.interp1d(mk, mpk2, kind='linear')
+p12 = interpolate.interp1d(mk, mpk12, kind='linear')
 
 #=================================MAIN CODE===================================
 
