@@ -30,8 +30,8 @@ opts, args = o.parse_args(sys.argv[1:])
 F21 = 1.42040575177
 FCO10 = 115.271208
 #Convert frequency (GHz) to redshift for 21cm line.
-def f2z(fq,FD=F21):
-    return (FD / fq - 1)
+def f2z(fq,line_freq=F21):
+    return (line_freq / fq - 1)
 
 #Multiply by this to convert an angle on the sky to a transverse distance in Mpc/h at redshift z
 def dL_dth(z):
@@ -39,9 +39,9 @@ def dL_dth(z):
     return 1.9 * (1./a.const.arcmin) * ((1+z) / 10.)**.2
 
 #Multiply by this to convert a bandwidth in GHz to a line of sight distance in Mpc/h at redshift z
-def dL_df(z, omega_m=0.266):
+def dL_df(z, omega_m=0.266,line_freq=F21):
     '''[h^-1 Mpc]/GHz, from Furlanetto et al. (2006)'''
-    return (1.7 / 0.1) * ((1+z) / 10.)**.5 * (omega_m/0.15)**-0.5 * 1e3
+    return (1.7 / 0.1) * ((1+z) / 10.)**.5 * (omega_m/0.15)**-0.5 * 1e3 * F21/line_freq
 
 #Multiply by this to convert a baseline length in wavelengths (at the frequency corresponding to redshift z) into a tranverse k mode in h/Mpc at redshift z
 def dk_du(z):
@@ -49,14 +49,14 @@ def dk_du(z):
     return 2*n.pi / dL_dth(z) # from du = 1/dth, which derives from du = d(sin(th)) using the small-angle approx
 
 #Multiply by this to convert eta (FT of freq.; in 1/GHz) to line of sight k mode in h/Mpc at redshift z
-def dk_deta(z):
+def dk_deta(z,line_freq=F21):
     '''2pi * [h Mpc^-1] / [GHz^-1]'''
-    return 2*n.pi / dL_df(z)
+    return 2*n.pi / dL_df(z,line_freq)
 
 #scalar conversion between observing and cosmological coordinates
-def X2Y(z):
+def X2Y(z,line_freq=F21):
     '''[h^-3 Mpc^3] / [str * GHz]'''
-    return dL_dth(z)**2 * dL_df(z)
+    return dL_dth(z)**2 * dL_df(z,line_freq)
 
 #A function used for binning
 def find_nearest(array,value):
@@ -83,13 +83,24 @@ for argnum,arg in enumerate(args):
         uv_coverage = array['uv_coverage_pess']
     else:
         uv_coverage = array['uv_coverage']
+    uv_coverage *= t_int
+    SIZE = uv_coverage.shape[0]
+    # Cut unnecessary data out of uv coverage: auto-correlations & half of uv plane (which is not statistically independent for real sky)
+    uv_coverage[SIZE/2,SIZE/2] = 0.
+    uv_coverage[:,:SIZE/2] = 0.
+    uv_coverage[SIZE/2:,SIZE/2] = 0.    
+    if opts.no_ns: uv_coverage[:,SIZE/2] = 0.
+    nonzero=n.where(uv_coverage>0)
+    array_dict[name]['nonzero']=nonzero
+    array_dict[name]['SIZE']=SIZE
     array_dict[name]['uv_coverage']=uv_coverage  
     obstype=array['obstype']
     h = 0.7
-    CF={'21cm':F21,'co':FCO10}[obstype]
-    B = opts.bwidth*CF/F21
+    line_freq={'21cm':F21,'co':FCO10}[obstype]
+    array_dict[name]['line_freq']=line_freq
+    B = opts.bwidth*line_freq/F21
     array_dict[name]['B']=B
-    z = f2z(array['freq'],CF)
+    z = f2z(array['freq'],line_freq)
     array_dict[name]['z']=z
     dish_size_in_lambda = dish_size_in_lambda*(array['freq']/.150) # linear frequency evolution, relative to 150 MHz
     array_dict[name]['dish_size_in_lambda']=dish_size_in_lambda
@@ -97,13 +108,29 @@ for argnum,arg in enumerate(args):
     array_dict[name]['first_null']=first_null
     bm = 1.13*(2.35*(0.45/dish_size_in_lambda))**2
     array_dict[name]['bm']=bm
-    kpls = dk_deta(z) * n.fft.fftfreq(nchan,B/nchan) * CF/F21
+    kpls = dk_deta(z,line_freq) * n.fft.fftfreq(nchan,B/nchan)
     array_dict[name]['kpls']=kpls
     Tsky = 60e3 * (3e8/(array['freq']*1e9))**2.55+2.7e3  # sky temperature in mK (added CMB for high frequencies)
     array_dict[name]['Tsky']=Tsky
+
+
+min_dish_size_in_lambda=9e99
+for name in array_dict.keys():
+    if array_dict[name]['dish_size_in_lambda']<min_dish_size_in_lambda:
+        min_name=name
+        min_dish_size_in_lambda=array_dict[name]['dish_size_in_lambda']
+
+if array_dict.keys().index(min_name)==0:
+    max_name=array_dict.keys()[1]
+    max_num=1
+    min_num=0
+else:
+    max_name=array_dict.keys()[0]
+    max_num=0
+    min_num=1
+
 n_lstbins = opts.n_per_day*60./obs_duration
 nchan = opts.nchan
-
 #===============================EOR MODEL===================================
 
 #You can change this to have any model you want, as long as mk, mpk and p21 are returned
@@ -126,46 +153,68 @@ kprs = []
 #sense will include sample variance, Tsense will be Thermal only
 sense, Tsense = {}, {}
     
-uv_coverage *= t_int
-SIZE = uv_coverage.shape[0]
-
-# Cut unnecessary data out of uv coverage: auto-correlations & half of uv plane (which is not statistically independent for real sky)
-uv_coverage[SIZE/2,SIZE/2] = 0.
-uv_coverage[:,:SIZE/2] = 0.
-uv_coverage[SIZE/2:,SIZE/2] = 0.
-if opts.no_ns: uv_coverage[:,SIZE/2] = 0.
+u_larger=array_dict[max_name]['nonzero'][1]-array_dict[max_name]['SIZE']/2
+v_larger=array_dict[max_name]['nonzero'][0]-array_dict[max_name]['SIZE']/2
+u_larger*=array_dict[max_name]['dish_size_in_lambda']
+v_larger*=array_dict[max_name]['dish_size_in_lambda']
 
 #loop over uv_coverage to calculate k_pr
-nonzero = n.where(uv_coverage > 0)
-for iu,iv in zip(nonzero[1], nonzero[0]):
-   u, v = (iu - SIZE/2) * dish_size_in_lambda, (iv - SIZE/2) * dish_size_in_lambda
-   umag = n.sqrt(u**2 + v**2)
-   kpr = umag * dk_du(z)
-   kprs.append(kpr)
-   #calculate horizon limit for baseline of length umag
-   if opts.model in ['mod','pess']: hor = dk_deta(z) * umag/array['freq'] + opts.buff
-   elif opts.model in ['opt']: hor = dk_deta(z) * (umag/array['freq'])*n.sin(first_null/2)
-   else: print '%s is not a valid foreground model; Aborting...' % opts.model; sys.exit()
-   if not sense.has_key(kpr): 
-       sense[kpr] = n.zeros_like(kpls)
-       Tsense[kpr] = n.zeros_like(kpls)
-   for i, kpl in enumerate(kpls):
-       #exclude k_parallel modes contaminated by foregrounds
-       if n.abs(kpl) < hor: continue
-       k = n.sqrt(kpl**2 + kpr**2)
-       if k < min(mk): continue
-       #don't include values beyond the interpolation range (no sensitivity anyway)
-       if k > n.max(mk): continue
-       tot_integration = uv_coverage[iv,iu] * opts.ndays
-       delta21 = p21(k)
-       Tsys = Tsky + Trx
-       bm2 = bm/2. #beam^2 term calculated for Gaussian; see Parsons et al. 2014
-       bm_eff = bm**2 / bm2 # this can obviously be reduced; it isn't for clarity
-       scalar = X2Y(z) * bm_eff * B * k**3 / (2*n.pi**2)
-       Trms = Tsys / n.sqrt(2*(B*1e9)*tot_integration)
-       #add errors in inverse quadrature
-       sense[kpr][i] += 1./(scalar*Trms**2 + delta21)**2
-       Tsense[kpr][i] += 1./(scalar*Trms**2)**2
+for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonzero'][0]):
+   u, v = (iu - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda'], (iv - array_dict['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda']
+   #find matching measurement in grid with larger uv cells.
+   u_match=np.abs(u_larger-u)<array_dict[max_name]['dish_size_in_lambda']
+   v_match=np.abs(v_larger-v)<array_dict[max_name]['dish_size_in_lambda']
+   if len(u_match[u_match])==1 and len(v_match[v_match])==1:
+       iu1=array_dict[max_name]['nonzero'][1][u_match]
+       iv1=array-dict[max_name]['nonzero'][0][v_match]
+       umag = n.sqrt(u**2 + v**2)
+       kpr = umag * dk_du(z)
+       kprs.append(kpr)
+       #calculate horizon limit for baseline of length umag
+       if opts.model in ['mod','pess']: hor = dk_deta(z) * umag/array['freq'] + opts.buff
+       elif opts.model in ['opt']: hor = dk_deta(z) * (umag/array['freq'])*n.sin(first_null/2)
+       else: print '%s is not a valid foreground model; Aborting...' % opts.model; sys.exit()
+       if not sense.has_key(kpr): 
+           sense[kpr] = n.zeros_like(kpls)
+           Tsense[kpr] = n.zeros_like(kpls)
+       for i, kpl in enumerate(kpls):
+           #exclude k_parallel modes contaminated by foregrounds
+           if n.abs(kpl) < hor: continue
+           k = n.sqrt(kpl**2 + kpr**2)
+           if k < min(mk): continue
+           #don't include values beyond the interpolation range (no sensitivity anyway)
+           if k > n.max(mk): continue
+           tot_integration_1 = array_dict[min_name]['uv_coverage'][iv,iu] * opts.ndays
+           tot_integration_2 = array_dict[max_name]['uv_coverage'][iv1,iu1] * opts.ndays
+           delta1 = p1(k)
+           delta2 = p2(k)
+           delta12 = p12(k)
+           name1=array_dict.keys()[0]
+           name2=array_dict.keys()[1]
+           bm_1=array_dict[name1]['bm']/2.
+           bm2_1=array_dict[name1]['bm2']/2.
+           bm_eff_1=bm_1**2./bm2_1
+           bm_2=array_dict[name2]['bm']/2.
+           bm2_2=array_dict[name2]['bm2']/2.
+           bm_eff_2=bm_2**2./bm2_2
+
+           Tsys1=array_dict[name1]['Tsky']+array_dict[name1]['Trx']
+           Tsys2=array_dict[name2]['Tsky']+array_dict[name2]['Trx']
+           
+           scalar1 = X2Y(z,array_dict[name1]['line_freq']) * bm_eff_1 * B * k**3 / (2*n.pi**2)
+           scaler2 = X2Y(z,array_dict[name2]['line_freq']) * bm_eff_2 * B * k**3 / (2*n.pi**2)
+           Trms1 = Tsys1 / n.sqrt(2*(array_dict[name1]['B']*1e9)*tot_integration_1)
+           Trms2 = Tsys2 / n.sqrt(2*(array_dict[name2]['B']*1e9)*tot_integration_2)
+           #add errors in inverse quadrature
+           if p12==p1 and p2==p12 and scalar1*Trms1**2==scaler2*Trms2:
+               #if cross power is equal to auto-power, than we want the power spectrum sensitivity formula (n12=n11**2)
+               #this is physically incorrect since the power-spectrum for identical quantities is usually derived through
+               #interleaved visibilities. However, we get the correct formulas for cross and auto power spectra this way. 
+               n12=scalar1*Trms1**2
+           else:#otherwise, want to use cross-power spectrum formula
+               n12=0.
+           sense[kpr][i] += 2./((scalar1*Trms1**2 + p1)*(scaler2*Trms2**2 + p2)+(p12+n12))**2.
+           Tsense[kpr][i] += 1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
 
 #bin the result in 1D
 delta = dk_deta(z)*(1./B) #default bin size is given by bandwidth
