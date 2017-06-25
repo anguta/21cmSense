@@ -217,7 +217,7 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
            Tsense[kpr][i] += 1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
 
 #bin the result in 1D
-delta = dk_deta(z)*(1./B) #default bin size is given by bandwidth
+delta = dk_deta(z,line_freq)*(1./B) #default bin size is given by bandwidth
 kmag = n.arange(delta,n.max(mk),delta)
 
 kprs = n.array(kprs)
@@ -243,8 +243,8 @@ for ind,kbin in enumerate(sense1d):
 n.savez('%s_%s_%.3f.npz' % (name,opts.model,array['freq']),ks=kmag,errs=sense1d,T_errs=Tsense1d)
 
 #calculate significance with least-squares fit of amplitude
-A = p21(kmag)
-M = p21(kmag)
+A = p12(kmag)
+M = p12(kmag)
 wA, wM = A * (1./sense1d), M * (1./sense1d)
 wA, wM = n.matrix(wA).T, n.matrix(wM).T
 amp = (wA.T*wA).I * (wA.T * wM)
