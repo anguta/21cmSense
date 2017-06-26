@@ -16,6 +16,9 @@ o.add_option('--bl_max', dest='bl_max', default=None, type=float,
     help="Set the maximum baseline (in meters) to include in the uv plane.  Use to exclude outriggers with little EoR sensitivity to speed up calculation.")
 o.add_option('-f', '--freq', dest='freq', default=0.135, type=float,
     help="The central frequency of the observation in GHz.  Default is 0.135 GHz, corresponding to z = 9.5, which matches the default model power spectrum used in calc_sense.py.")
+o.add_option('-l','--line',dest='linetype',default='21cm',type=str,
+             help='The line being used for tomography. User may specify 21cm or CO. Default is 21cm')
+#Need to add CO 2-1 line, CE-II, H2, He-II, Ly-Alpha?
 opts, args = o.parse_args(sys.argv[1:])
 
 #============================SIMPLE GRIDDING FUNCTION=======================
@@ -29,7 +32,7 @@ def beamgridder(xcen,ycen,size):
     if round(ycen) > size - 1 or round(xcen) > size - 1 or ycen < 0. or xcen <0.: 
         return beam
     else:
-        beam[round(ycen),round(xcen)] = 1. #single pixel gridder
+        beam[int(round(ycen)),int(round(xcen))] = 1. #single pixel gridder
         return beam
 
 #==============================READ ARRAY PARAMETERS=========================
@@ -94,7 +97,7 @@ if opts.bl_max:
     print 'The longest baseline being included is %.2f m' % (bl_len_max*(a.const.c/(ref_fq*1e11)))
 
 #grid each baseline type into uv plane
-dim = n.round(bl_len_max/dish_size_in_lambda)*2 + 1 # round to nearest odd
+dim = int(n.round(bl_len_max/dish_size_in_lambda)*2 + 1) # round to nearest odd
 uvsum,quadsum = n.zeros((dim,dim)), n.zeros((dim,dim)) #quadsum adds all non-instantaneously-redundant baselines incoherently
 for cnt, uvbin in enumerate(uvbins):
     print 'working on %i of %i uvbins' % (cnt+1, len(uvbins))
@@ -125,5 +128,6 @@ obs_duration = obs_duration,
 dish_size_in_lambda = dish_size_in_lambda,
 Trx = prms['Trx'],
 t_int = t_int,
-freq=opts.freq
+freq=opts.freq,
+linetype=opts.linetype 
 )
