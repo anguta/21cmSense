@@ -64,14 +64,17 @@ def find_nearest(array,value):
     return idx
 
 
+
+nchan = opts.nchan
 #====================OBSERVATION/COSMOLOGY PARAMETER VALUES====================
 
 #Load in data from array file; see mk_array_file.py for definitions of the parameters
 array_dict={}
 for argnum,arg in enumerate(args):
     array = n.load(args[0])
-    name = array['name']
+    name = str(array['name'])
     obs_duration = array['obs_duration']
+    array_dict[name]={}
     array_dict[name]['obs_duration']=obs_duration
     dish_size_in_lambda = array['dish_size_in_lambda']
     array_dict[name]['dish_size_in_lambda']=dish_size_in_lambda
@@ -94,7 +97,7 @@ for argnum,arg in enumerate(args):
     array_dict[name]['nonzero']=nonzero
     array_dict[name]['SIZE']=SIZE
     array_dict[name]['uv_coverage']=uv_coverage  
-    obstype=array['obstype']
+    obstype=str(array['linetype'])
     h = 0.7
     line_freq={'21cm':F21,'co':FCO10}[obstype]
     array_dict[name]['line_freq']=line_freq
@@ -112,7 +115,8 @@ for argnum,arg in enumerate(args):
     array_dict[name]['kpls']=kpls
     Tsky = 60e3 * (3e8/(array['freq']*1e9))**2.55+2.7e3  # sky temperature in mK (added CMB for high frequencies)
     array_dict[name]['Tsky']=Tsky
-
+    n_lstbins = opts.n_per_day*60./obs_duration
+    array_dict[name]['n_lstbins']=n_lstbins
 
 min_dish_size_in_lambda=9e99
 for name in array_dict.keys():
@@ -129,8 +133,6 @@ else:
     max_num=0
     min_num=1
 
-n_lstbins = opts.n_per_day*60./obs_duration
-nchan = opts.nchan
 #===============================EOR MODEL===================================
 
 #You can change this to have any model you want, as long as mk, mpk and p21 are returned
@@ -151,7 +153,7 @@ p12 = interpolate.interp1d(mk, mpk12, kind='linear')
 #set up blank arrays/dictionaries
 kprs = []
 #sense will include sample variance, Tsense will be Thermal only
-sense, Tsense = {}, {}
+sense, Tsense, corrSense = {}, {}, {}
     
 u_larger=array_dict[max_name]['nonzero'][1]-array_dict[max_name]['SIZE']/2
 v_larger=array_dict[max_name]['nonzero'][0]-array_dict[max_name]['SIZE']/2
@@ -177,6 +179,7 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
        if not sense.has_key(kpr): 
            sense[kpr] = n.zeros_like(kpls)
            Tsense[kpr] = n.zeros_like(kpls)
+           corrSense[kpr]=n.zeros_like(kpls)
        for i, kpl in enumerate(kpls):
            #exclude k_parallel modes contaminated by foregrounds
            if n.abs(kpl) < hor: continue
@@ -213,9 +216,9 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
                n12=scalar1*Trms1**2
            else:#otherwise, want to use cross-power spectrum formula
                n12=0.
-           sense[kpr][i] += 2./((scalar1*Trms1**2 + p1)*(scaler2*Trms2**2 + p2)+(p12+n12))**2.
+           sense[kpr][i] += 2./((scalar1*Trms1**2. + p1)*(scaler2*Trms2**2 + p2)+(p12+n12))**2.
            Tsense[kpr][i] += 1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
-
+           corrSense[kpr][i] +=(Ncorr-1)*p12**2./((p1+scaler1*Trms1**2.)*(p2+scaler2*Trms2**2.))
 #bin the result in 1D
 delta = dk_deta(z,line_freq)*(1./B) #default bin size is given by bandwidth
 kmag = n.arange(delta,n.max(mk),delta)
