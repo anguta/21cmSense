@@ -245,9 +245,6 @@ for ind, kpr in enumerate(sense.keys()):
     #Tsense[kpr] = Tsense[kpr]**-.5 #/ n.sqrt(n_lstbins)
     for i, kpl in enumerate(kpls):
         k = n.sqrt(kpl**2 + kpr**2)
-        delta12=p12(k)
-        delta1=p1(k)
-        delta2=p2(k)
         if k > n.max(mk): continue
         #add errors in inverse quadrature for further binning
         sense1d[find_nearest(kmag,k)] += sense[kpr][i]
