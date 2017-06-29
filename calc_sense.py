@@ -160,6 +160,9 @@ v_larger=array_dict[max_name]['nonzero'][0]-array_dict[max_name]['SIZE']/2
 u_larger*=array_dict[max_name]['dish_size_in_lambda']
 v_larger*=array_dict[max_name]['dish_size_in_lambda']
 
+n_corr=np.round((array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])**2.)
+lst_ratio=np.round(array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])
+
 #loop over uv_coverage to calculate k_pr
 for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonzero'][0]):
    u, v = (iu - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda'], (iv - array_dict['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda']
@@ -203,22 +206,32 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
 
            Tsys1=array_dict[name1]['Tsky']+array_dict[name1]['Trx']
            Tsys2=array_dict[name2]['Tsky']+array_dict[name2]['Trx']
+
+           
            
            scalar1 = X2Y(z,array_dict[name1]['line_freq']) * bm_eff_1 * B * k**3 / (2*n.pi**2)
            scaler2 = X2Y(z,array_dict[name2]['line_freq']) * bm_eff_2 * B * k**3 / (2*n.pi**2)
            Trms1 = Tsys1 / n.sqrt(2*(array_dict[name1]['B']*1e9)*tot_integration_1)
            Trms2 = Tsys2 / n.sqrt(2*(array_dict[name2]['B']*1e9)*tot_integration_2)
            #add errors in inverse quadrature
-           if p12==p1 and p2==p12 and scalar1*Trms1**2==scaler2*Trms2:
+           if delta12==delta1 and delta2==delta12 and scalar1*Trms1**2==scaler2*Trms2:
                #if cross power is equal to auto-power, than we want the power spectrum sensitivity formula (n12=n11**2)
                #this is physically incorrect since the power-spectrum for identical quantities is usually derived through
                #interleaved visibilities. However, we get the correct formulas for cross and auto power spectra this way. 
                n12=scalar1*Trms1**2
            else:#otherwise, want to use cross-power spectrum formula
                n12=0.
-           sense[kpr][i] += 2./((scalar1*Trms1**2. + p1)*(scaler2*Trms2**2 + p2)+(p12+n12))**2.
-           Tsense[kpr][i] += 1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
-           corrSense[kpr][i] +=(Ncorr-1)*p12**2./((p1+scaler1*Trms1**2.)*(p2+scaler2*Trms2**2.))
+           autovar=2./((scalar1*Trms1**2. + delta1)*(scaler2*Trms2**2 + delta2)+(delta12+n12))**2.
+           lst_factor=(1+(lst_ratio-1)*delta12**2./((delta12+(scaler1*Trms1**2+delta1)*(scaler2*Trms2**2+delta2))))/array_dict[max_name]['n_lstbins']
+           nvar=1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
+           sense[kpr][i] += autovar/lst_factor
+           Tsense[kpr][i] += nvar/lst_factor
+           corrSense[kpr][i] +=autovar*(n_corr-1)*delta12**2./((delta1+scaler1*Trms1**2.)*(delta2+scaler2*Trms2**2.))/lst_factor
+           
+           #multiply by lst factors
+           
+#multiply sense and Tsens by LST factor
+
 #bin the result in 1D
 delta = dk_deta(z,line_freq)*(1./B) #default bin size is given by bandwidth
 kmag = n.arange(delta,n.max(mk),delta)
@@ -228,15 +241,18 @@ sense1d = n.zeros_like(kmag)
 Tsense1d = n.zeros_like(kmag)
 for ind, kpr in enumerate(sense.keys()):
     #errors were added in inverse quadrature, now need to invert and take square root to have error bars; also divide errors by number of indep. fields
-    sense[kpr] = sense[kpr]**-.5 / n.sqrt(n_lstbins)
-    Tsense[kpr] = Tsense[kpr]**-.5 / n.sqrt(n_lstbins)
+    #sense[kpr] = sense[kpr]**-.5 #/ n.sqrt(n_lstbins)
+    #Tsense[kpr] = Tsense[kpr]**-.5 #/ n.sqrt(n_lstbins)
     for i, kpl in enumerate(kpls):
         k = n.sqrt(kpl**2 + kpr**2)
+        delta12=p12(k)
+        delta1=p1(k)
+        delta2=p2(k)
         if k > n.max(mk): continue
         #add errors in inverse quadrature for further binning
-        sense1d[find_nearest(kmag,k)] += 1./sense[kpr][i]**2
-        Tsense1d[find_nearest(kmag,k)] += 1./Tsense[kpr][i]**2
-
+        sense1d[find_nearest(kmag,k)] += sense[kpr][i]
+        Tsense1d[find_nearest(kmag,k)] += Tsense[kpr][i]
+        corrsense1d[find_nearest(kmag,k)]+=corrsense1d[find_nearest(kmag,k)]
 #invert errors and take square root again for final answer
 for ind,kbin in enumerate(sense1d):
     sense1d[ind] = kbin**-.5
