@@ -72,7 +72,7 @@ nchan = opts.nchan
 array_dict={}
 for argnum,arg in enumerate(args):
     array = n.load(args[0])
-    name = str(array['name'])
+    name = str(array['name'])+'_%d'%argnum
     obs_duration = array['obs_duration']
     array_dict[name]={}
     array_dict[name]['obs_duration']=obs_duration
@@ -123,7 +123,7 @@ for name in array_dict.keys():
     if array_dict[name]['dish_size_in_lambda']<min_dish_size_in_lambda:
         min_name=name
         min_dish_size_in_lambda=array_dict[name]['dish_size_in_lambda']
-
+print array_dict.keys()
 if array_dict.keys().index(min_name)==0:
     max_name=array_dict.keys()[1]
     max_num=1
@@ -155,20 +155,20 @@ kprs = []
 #sense will include sample variance, Tsense will be Thermal only
 sense, Tsense, corrSense = {}, {}, {}
     
-u_larger=array_dict[max_name]['nonzero'][1]-array_dict[max_name]['SIZE']/2
-v_larger=array_dict[max_name]['nonzero'][0]-array_dict[max_name]['SIZE']/2
+u_larger=(array_dict[max_name]['nonzero'][1]-array_dict[max_name]['SIZE']/2).astype(float)
+v_larger=(array_dict[max_name]['nonzero'][0]-array_dict[max_name]['SIZE']/2).astype(float)
 u_larger*=array_dict[max_name]['dish_size_in_lambda']
 v_larger*=array_dict[max_name]['dish_size_in_lambda']
 
-n_corr=np.round((array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])**2.)
-lst_ratio=np.round(array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])
+n_corr=n.round((array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])**2.)
+lst_ratio=n.round(array_dict[max_name]['dish_size_in_lambda']/array_dict[min_name]['dish_size_in_lambda'])
 
 #loop over uv_coverage to calculate k_pr
 for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonzero'][0]):
-   u, v = (iu - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda'], (iv - array_dict['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda']
+   u, v = (iu - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda'], (iv - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda']
    #find matching measurement in grid with larger uv cells.
-   u_match=np.abs(u_larger-u)<array_dict[max_name]['dish_size_in_lambda']
-   v_match=np.abs(v_larger-v)<array_dict[max_name]['dish_size_in_lambda']
+   u_match=n.abs(u_larger-u)<array_dict[max_name]['dish_size_in_lambda']
+   v_match=n.abs(v_larger-v)<array_dict[max_name]['dish_size_in_lambda']
    if len(u_match[u_match])==1 and len(v_match[v_match])==1:
        iu1=array_dict[max_name]['nonzero'][1][u_match]
        iv1=array-dict[max_name]['nonzero'][0][v_match]
