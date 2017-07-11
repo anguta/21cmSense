@@ -51,12 +51,12 @@ def dk_du(z):
 #Multiply by this to convert eta (FT of freq.; in 1/GHz) to line of sight k mode in h/Mpc at redshift z
 def dk_deta(z,line_freq=F21):
     '''2pi * [h Mpc^-1] / [GHz^-1]'''
-    return 2*n.pi / dL_df(z,line_freq)
+    return 2*n.pi / dL_df(z,line_freq=line_freq)
 
 #scalar conversion between observing and cosmological coordinates
 def X2Y(z,line_freq=F21):
     '''[h^-3 Mpc^3] / [str * GHz]'''
-    return dL_dth(z)**2 * dL_df(z,line_freq)
+    return dL_dth(z)**2 * dL_df(z,line_freq=line_freq)
 
 #A function used for binning
 def find_nearest(array,value):
@@ -100,6 +100,8 @@ for argnum,arg in enumerate(args):
     obstype=str(array['linetype'])
     h = 0.7
     line_freq={'21cm':F21,'co':FCO10}[obstype]
+    print('obstype='+str(obstype))
+    print('line_freq='+str(line_freq))
     array_dict[name]['line_freq']=line_freq
     B = opts.bwidth*line_freq/F21
     array_dict[name]['B']=B
@@ -110,7 +112,9 @@ for argnum,arg in enumerate(args):
     first_null = 1.22/dish_size_in_lambda #for an airy disk, even though beam model is Gaussian
     array_dict[name]['first_null']=first_null
     bm = 1.13*(2.35*(0.45/dish_size_in_lambda))**2
+    bm2=bm/2.
     array_dict[name]['bm']=bm
+    array_dict[name]['bm2']=bm2
     kpls = dk_deta(z,line_freq) * n.fft.fftfreq(nchan,B/nchan)
     array_dict[name]['kpls']=kpls
     Tsky = 60e3 * (3e8/(array['freq']*1e9))**2.55+2.7e3  # sky temperature in mK (added CMB for high frequencies)
@@ -123,7 +127,6 @@ for name in array_dict.keys():
     if array_dict[name]['dish_size_in_lambda']<min_dish_size_in_lambda:
         min_name=name
         min_dish_size_in_lambda=array_dict[name]['dish_size_in_lambda']
-print array_dict.keys()
 if array_dict.keys().index(min_name)==0:
     max_name=array_dict.keys()[1]
     max_num=1
@@ -165,13 +168,17 @@ lst_ratio=n.round(array_dict[max_name]['dish_size_in_lambda']/array_dict[min_nam
 
 #loop over uv_coverage to calculate k_pr
 for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonzero'][0]):
+   #print('iu='+str(iu)+',iv='+str(iv))
    u, v = (iu - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda'], (iv - array_dict[min_name]['SIZE']/2) * array_dict[min_name]['dish_size_in_lambda']
+   #print('u='+str(u)+',v='+str(v))
    #find matching measurement in grid with larger uv cells.
    u_match=n.abs(u_larger-u)<array_dict[max_name]['dish_size_in_lambda']
    v_match=n.abs(v_larger-v)<array_dict[max_name]['dish_size_in_lambda']
-   if len(u_match[u_match])==1 and len(v_match[v_match])==1:
-       iu1=array_dict[max_name]['nonzero'][1][u_match]
-       iv1=array-dict[max_name]['nonzero'][0][v_match]
+   match_and=n.logical_and(u_match,v_match)
+   #print('umatch and vmatch='+str(match_and[match_and]))
+   if len(match_and==1):
+       iu1=array_dict[max_name]['nonzero'][1][match_and]
+       iv1=array_dict[max_name]['nonzero'][0][match_and]
        umag = n.sqrt(u**2 + v**2)
        kpr = umag * dk_du(z)
        kprs.append(kpr)
@@ -210,35 +217,40 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
            
            
            scalar1 = X2Y(z,array_dict[name1]['line_freq']) * bm_eff_1 * B * k**3 / (2*n.pi**2)
-           scaler2 = X2Y(z,array_dict[name2]['line_freq']) * bm_eff_2 * B * k**3 / (2*n.pi**2)
+           scalar2 = X2Y(z,array_dict[name2]['line_freq']) * bm_eff_2 * B * k**3 / (2*n.pi**2)
            Trms1 = Tsys1 / n.sqrt(2*(array_dict[name1]['B']*1e9)*tot_integration_1)
            Trms2 = Tsys2 / n.sqrt(2*(array_dict[name2]['B']*1e9)*tot_integration_2)
            #add errors in inverse quadrature
-           if delta12==delta1 and delta2==delta12 and scalar1*Trms1**2==scaler2*Trms2:
+           if delta12==delta1 and delta2==delta12 and scalar1*Trms1**2==scalar2*Trms2:
                #if cross power is equal to auto-power, than we want the power spectrum sensitivity formula (n12=n11**2)
                #this is physically incorrect since the power-spectrum for identical quantities is usually derived through
                #interleaved visibilities. However, we get the correct formulas for cross and auto power spectra this way. 
                n12=scalar1*Trms1**2
            else:#otherwise, want to use cross-power spectrum formula
                n12=0.
-           autovar=2./((scalar1*Trms1**2. + delta1)*(scaler2*Trms2**2 + delta2)+(delta12+n12))**2.
-           lst_factor=(1+(lst_ratio-1)*delta12**2./((delta12+(scaler1*Trms1**2+delta1)*(scaler2*Trms2**2+delta2))))/array_dict[max_name]['n_lstbins']
-           nvar=1./((scalar1*Trms1**2)*(scaler2*Trms2**2))
+           autovar=2./((scalar1*Trms1**2. + delta1)*(scalar2*Trms2**2 + delta2)+(delta12+n12))**2.
+           lst_factor=(1+(lst_ratio-1)*delta12**2./((delta12+(scalar1*Trms1**2+delta1)*(scalar2*Trms2**2+delta2))))/array_dict[max_name]['n_lstbins']
+           nvar=1./((scalar1*Trms1**2)*(scalar2*Trms2**2))
            sense[kpr][i] += autovar/lst_factor
            Tsense[kpr][i] += nvar/lst_factor
-           corrSense[kpr][i] +=autovar*(n_corr-1)*delta12**2./((delta1+scaler1*Trms1**2.)*(delta2+scaler2*Trms2**2.))/lst_factor
+           corrSense[kpr][i] +=autovar*(n_corr-1)*delta12**2./((delta1+scalar1*Trms1**2.)*(delta2+scalar2*Trms2**2.))*autovar[kpr][i]
            
            #multiply by lst factors
            
 #multiply sense and Tsens by LST factor
 
 #bin the result in 1D
+
 delta = dk_deta(z,line_freq)*(1./B) #default bin size is given by bandwidth
+print('B='+str(B))
+print('delta=')
+print(delta)
 kmag = n.arange(delta,n.max(mk),delta)
 
 kprs = n.array(kprs)
 sense1d = n.zeros_like(kmag)
 Tsense1d = n.zeros_like(kmag)
+corrSense1d = n.zeros_like(kmag)
 for ind, kpr in enumerate(sense.keys()):
     #errors were added in inverse quadrature, now need to invert and take square root to have error bars; also divide errors by number of indep. fields
     #sense[kpr] = sense[kpr]**-.5 #/ n.sqrt(n_lstbins)
@@ -249,15 +261,18 @@ for ind, kpr in enumerate(sense.keys()):
         #add errors in inverse quadrature for further binning
         sense1d[find_nearest(kmag,k)] += sense[kpr][i]
         Tsense1d[find_nearest(kmag,k)] += Tsense[kpr][i]
-        corrsense1d[find_nearest(kmag,k)]+=corrsense1d[find_nearest(kmag,k)]
+        corrSense1d[find_nearest(kmag,k)]+=corrSense[kpr][i]
 #invert errors and take square root again for final answer
+print('Tsense1d before='+str(Tsense1d))
 for ind,kbin in enumerate(sense1d):
-    sense1d[ind] = kbin**-.5
     Tsense1d[ind] = Tsense1d[ind]**-.5
+    sense1d[ind]=n.sqrt(kbin+corrSense1d[ind])/kbin
+#print('sens1d='+str(sense1d))
+#print('Tsense1d='+str(Tsense1d))
 
 #save results to output npz
 n.savez('%s_%s_%.3f.npz' % (name,opts.model,array['freq']),ks=kmag,errs=sense1d,T_errs=Tsense1d)
-
+sense1d[n.isnan(sense1d)]=n.inf
 #calculate significance with least-squares fit of amplitude
 A = p12(kmag)
 M = p12(kmag)
