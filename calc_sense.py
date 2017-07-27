@@ -100,8 +100,8 @@ for argnum,arg in enumerate(args):
     obstype=str(array['linetype'])
     h = 0.7
     line_freq={'21cm':F21,'co':FCO10}[obstype]
-    print('obstype='+str(obstype))
-    print('line_freq='+str(line_freq))
+    #print('obstype='+str(obstype))
+    #print('line_freq='+str(line_freq))
     array_dict[name]['line_freq']=line_freq
     B = opts.bwidth*line_freq/F21
     array_dict[name]['B']=B
@@ -177,8 +177,8 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
    match_and=n.logical_and(u_match,v_match)
    #print('umatch and vmatch='+str(match_and[match_and]))
    if len(match_and==1):
-       iu1=array_dict[max_name]['nonzero'][1][match_and]
-       iv1=array_dict[max_name]['nonzero'][0][match_and]
+       iu1=array_dict[max_name]['nonzero'][1][match_and][0]
+       iv1=array_dict[max_name]['nonzero'][0][match_and][0]
        umag = n.sqrt(u**2 + v**2)
        kpr = umag * dk_du(z)
        kprs.append(kpr)
@@ -204,11 +204,11 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
            delta12 = p12(k)
            name1=array_dict.keys()[0]
            name2=array_dict.keys()[1]
-           bm_1=array_dict[name1]['bm']/2.
-           bm2_1=array_dict[name1]['bm2']/2.
+           bm_1=array_dict[name1]['bm']
+           bm2_1=array_dict[name1]['bm2']
            bm_eff_1=bm_1**2./bm2_1
-           bm_2=array_dict[name2]['bm']/2.
-           bm2_2=array_dict[name2]['bm2']/2.
+           bm_2=array_dict[name2]['bm']
+           bm2_2=array_dict[name2]['bm2']
            bm_eff_2=bm_2**2./bm2_2
 
            Tsys1=array_dict[name1]['Tsky']+array_dict[name1]['Trx']
@@ -221,30 +221,50 @@ for iu,iv in zip(array_dict[min_name]['nonzero'][1], array_dict[min_name]['nonze
            Trms1 = Tsys1 / n.sqrt(2*(array_dict[name1]['B']*1e9)*tot_integration_1)
            Trms2 = Tsys2 / n.sqrt(2*(array_dict[name2]['B']*1e9)*tot_integration_2)
            #add errors in inverse quadrature
-           if delta12==delta1 and delta2==delta12 and scalar1*Trms1**2==scalar2*Trms2:
+           if delta12==delta1 and delta2==delta12 and scalar1*Trms1**2.==scalar2*Trms2**2.:
                #if cross power is equal to auto-power, than we want the power spectrum sensitivity formula (n12=n11**2)
                #this is physically incorrect since the power-spectrum for identical quantities is usually derived through
                #interleaved visibilities. However, we get the correct formulas for cross and auto power spectra this way. 
-               n12=scalar1*Trms1**2
+               n12=scalar1*Trms1**2.
            else:#otherwise, want to use cross-power spectrum formula
                n12=0.
-           autovar=2./((scalar1*Trms1**2. + delta1)*(scalar2*Trms2**2 + delta2)+(delta12+n12))**2.
+           autovar=2./((scalar1*Trms1**2. + delta1)*(scalar2*Trms2**2. + delta2)+(delta12+n12)**2.)
            lst_factor=(1+(lst_ratio-1)*delta12**2./((delta12+(scalar1*Trms1**2+delta1)*(scalar2*Trms2**2+delta2))))/array_dict[max_name]['n_lstbins']
            nvar=1./((scalar1*Trms1**2)*(scalar2*Trms2**2))
            sense[kpr][i] += autovar/lst_factor
            Tsense[kpr][i] += nvar/lst_factor
-           corrSense[kpr][i] +=autovar*(n_corr-1)*delta12**2./((delta1+scalar1*Trms1**2.)*(delta2+scalar2*Trms2**2.))*autovar[kpr][i]
-           
+           corrSense[kpr][i] +=autovar*(n_corr-1)*delta12**2./((delta1+scalar1*Trms1**2.)*(delta2+scalar2*Trms2**2.))*autovar
+           #if i ==70 and iu==12 and iv==1:
+           #    print('Trx1='+str(array_dict[name1]['Trx']))
+           #    print('Tsky1='+str(array_dict[name1]['Tsky']))
+           #    print('Tsys1='+str(Tsys1))
+           #    print('Tsys2='+str(Tsys2))
+           #    print('B1='+str(array_dict[name1]['B']*1e9))
+           #    print('B2='+str(array_dict[name2]['B']*1e9))
+           #    print('tot_integration_1='+str(tot_integration_1))
+           #    print('tot_integration_2='+str(tot_integration_2))
+           #    print('Trms1='+str(Trms1))
+           #    print('Trms2='+str(Trms2))
+           #    print('scalar1='+str(scalar1))
+           #    print('scalar2='+str(scalar2))
+           #    print('k='+str(k))
+           #    print('delta1='+str(delta1))
+           #    print('delta2='+str(delta2))
+           #    print('lst_factor='+str(lst_factor))
+           #    print('delta12='+str(delta12))
+           #    print('n12='+str(n12))
+           #    print('sense[kpr][i]=%e'%(1./autovar))
+           #    print('iu,iv='+str(iu)+','+str(iv))
+           #    print('iu1,iv1='+str(iu1)+','+str(iv1))
            #multiply by lst factors
            
 #multiply sense and Tsens by LST factor
-
 #bin the result in 1D
 
 delta = dk_deta(z,line_freq)*(1./B) #default bin size is given by bandwidth
-print('B='+str(B))
-print('delta=')
-print(delta)
+#print('B='+str(B))
+#print('delta=')
+#print(delta)
 kmag = n.arange(delta,n.max(mk),delta)
 
 kprs = n.array(kprs)
@@ -263,7 +283,7 @@ for ind, kpr in enumerate(sense.keys()):
         Tsense1d[find_nearest(kmag,k)] += Tsense[kpr][i]
         corrSense1d[find_nearest(kmag,k)]+=corrSense[kpr][i]
 #invert errors and take square root again for final answer
-print('Tsense1d before='+str(Tsense1d))
+#print('Tsense1d before='+str(Tsense1d))
 for ind,kbin in enumerate(sense1d):
     Tsense1d[ind] = Tsense1d[ind]**-.5
     sense1d[ind]=n.sqrt(kbin+corrSense1d[ind])/kbin
@@ -271,7 +291,7 @@ for ind,kbin in enumerate(sense1d):
 #print('Tsense1d='+str(Tsense1d))
 
 #save results to output npz
-n.savez('%s_%s_%.3f.npz' % (name,opts.model,array['freq']),ks=kmag,errs=sense1d,T_errs=Tsense1d)
+n.savez('%s_%s_%.3f_cross.npz' % (name,opts.model,array['freq']),ks=kmag,errs=sense1d,T_errs=Tsense1d)
 sense1d[n.isnan(sense1d)]=n.inf
 #calculate significance with least-squares fit of amplitude
 A = p12(kmag)
